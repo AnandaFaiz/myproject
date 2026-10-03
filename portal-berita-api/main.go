@@ -78,15 +78,12 @@ func main() {
 			user.PUT("/auth/password", handlers.GantiPassword)
 			user.POST("/komentar", handlers.CreateKomentar)
 			user.DELETE("/komentar/:id", handlers.DeleteKomentar)
+			user.POST("/bookmark", handlers.CreateBookmark)
+			user.GET("/bookmark", handlers.GetBookmark)
+			user.GET("/bookmark/cek/:berita_id", handlers.CekBookmark)
+			user.DELETE("/bookmark/:berita_id", handlers.DeleteBookmark)
 		}
 	}
-
-	// //endpoint health check
-	// r.GET("/health", func(c *gin.Context) {
-	// 	c.JSON(http.StatusOK, gin.H{
-	// 		"status": "OK",
-	// 	})
-	// })
 
 	//jalankan server
 	port := os.Getenv("PORT")

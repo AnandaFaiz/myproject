@@ -32,6 +32,9 @@ const loadingKomentar = ref(false);
 const isiKomentar = ref("");
 const mengirim = ref(false);
 const errorKomentar = ref("");
+const hapusLoading = ref<number | null>(null);
+const tersimpan = ref(false);
+const loadingBookmark = ref(false);
 const loading = ref(false);
 const error = ref("");
 
@@ -124,6 +127,96 @@ function inisial(nama: string) {
     .slice(0, 2);
 }
 
+async function cekBookmark(beritaId: number) {
+  if (!isLoggedIn.value) {
+    tersimpan.value = false;
+    return;
+  }
+
+  try {
+    const token = useCookie<string | null>("auth_token");
+    const res = await $fetch<{ sukses: boolean; tersimpan: boolean }>(
+      `/api/bookmark/cek/${beritaId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token.value}`,
+        },
+      },
+    );
+    tersimpan.value = res.tersimpan;
+  } catch (err) {
+    console.error("Gagal cek bookmark:", err);
+    tersimpan.value = false;
+  }
+}
+
+async function toggleBookmark() {
+  if (!berita.value) return;
+  if (!isLoggedIn.value) {
+    await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`);
+    return;
+  }
+  loadingBookmark.value = true;
+
+  try {
+    const token = useCookie<string | null>("auth_token");
+
+    if (tersimpan.value) {
+      await $fetch(`/api/bookmark/${berita.value.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token.value}`,
+        },
+      });
+      tersimpan.value = false;
+    } else {
+      await $fetch("/api/bookmark", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer $(token.value)`,
+        },
+        body: {
+          beritaId: berita.value.id,
+        },
+      });
+      tersimpan.value = true;
+    }
+  } catch (err: any) {
+    alert(err?.data?.pesan || "Gagal memperbarui bookmark");
+  } finally {
+    loadingBookmark.value = false;
+  }
+}
+
+//hapus komentar
+function bisaHapus(komentar: Komentar): boolean {
+  if (!user.value) return false;
+  return user.value.role === "admin" || user.value.id === komentar.userId;
+}
+
+async function hapusKomentar(id: number) {
+  if (!confirm("Apakah Anda yakin ingin menghapus komentar ini?")) return;
+
+  hapusLoading.value = id;
+  try {
+    const token = useCookie<string | null>("auth_token");
+
+    await $fetch(`/api/komentar/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+      },
+    });
+
+    //hapus komentar dari daftar
+    komentarList.value = komentarList.value.filter((k) => k.id !== id);
+  } catch (err: any) {
+    alert(err?.data?.pesan || "Gagal menghapus komentar");
+  } finally {
+    hapusLoading.value = null;
+  }
+}
+
 //Filter : ambil berita lainnya selain berita yang dibaca user
 const beritaLain = computed(() => {
   if (!berita.value) return [];
@@ -153,6 +246,7 @@ onMounted(async () => {
     //ambil komentar setelah berita berhasil diambil
     if (berita.value) {
       await ambilKomentar(berita.value.id);
+      await cekBookmark(berita.value.id);
     }
   } catch (err: any) {
     error.value = err?.data?.pesan || "Berita tidak ditemukan";
@@ -230,6 +324,21 @@ onMounted(async () => {
             >
             <span class="pemisah">.</span>
             <span>{{ formatTanggal(berita.createdAt) }}</span>
+          </div>
+
+          <!--Bookmark-->
+          <div class="aksi-berita">
+            <button
+              class="btn-bookmark"
+              :class="{ tersimpan }"
+              :disabled="loadingBookmark"
+              @click="toggleBookmark"
+            >
+              <i
+                class="loadingBookmark ? 'mdi mdi-loading mdi-spin' :tersimpan ? 'mdi mdi-bookmark' : 'mdi mdi-bookmark-outline'"
+              ></i>
+              <span>{{ tersimpan ? "Tersimpan" : "Bookmark" }}</span>
+            </button>
           </div>
 
           <div class="konten">
@@ -325,6 +434,20 @@ onMounted(async () => {
                     <span class="komentar-waktu">{{
                       formatWaktuRelatif(kom.createdAt)
                     }}</span>
+
+                    <!--Tombol Hapus Komentar-->
+                    <button
+                      v-if="bisaHapus(kom)"
+                      class="btn-hapus-komentar"
+                      :disabled="hapusLoading === kom.id"
+                      @click="hapusKomentar(kom.id)"
+                    >
+                      <i
+                        v-if="hapusLoading === kom.id"
+                        class="mdi mdi-loading mdi-spin"
+                      ></i>
+                      <i v-else class="mdi mdi-delete"></i>
+                    </button>
                   </div>
                   <p class="komentar-isi">{{ kom.isi }}</p>
                 </div>
@@ -564,6 +687,53 @@ main {
   color: #d1d5db;
 }
 
+/* Tombol bookmark */
+.aksi-berita {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.btn-bookmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  color: #374151;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-bookmark:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.btn-bookmark:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-bookmark.tersimpan {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+.btn-bookmark.tersimpan:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.btn-bookmark i {
+  font-size: 1.1rem;
+}
+
 .konten {
   font-size: 1rem;
   line-height: 1.8;
@@ -788,6 +958,31 @@ main {
   color: #dc2626;
   font-size: 0.85rem;
   margin: 0.75rem 0 0;
+}
+/* Tombol hapus komentar */
+.btn-hapus-komentar {
+  margin-left: auto; /* dorong ke kanan */
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.btn-hapus-komentar:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.btn-hapus-komentar:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* Loading spin */
